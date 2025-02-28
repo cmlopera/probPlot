@@ -214,7 +214,7 @@ ui <- fixedPage(
                        numericInput("ci", label = "Nivel de confianza:",
                                     value = 0.95, min = 0, max = 1),
                        selectInput("band_type", label = "Tipo de banda:",
-                                   choices = c("Pointwise", "Simultaneous", "None"), selected = "Pointwise"),
+                                   choices = c("Pointwise", "Simultaneous", "none"), selected = "none"),
                        style = "margin-top: 20px;"
                      ),
                      mainPanel(
@@ -282,13 +282,13 @@ server <- function(input, output, session) {
     return("No Especificado")
   }
   
-  bases_de_datos <- c(
+  bases_de_datos <- sort(c(
     "at7987", "bearinga", "bearingcage", "componentd", "deviceh", "devicen", "fan", "lfp1370", 
     "turbine","locomotivecontrol", "rocketmotor", "titanium2", "vehiclemotor", "heatexchanger", 
     "bulb", "appliancea","atrazinejune","customerlife","bkfatigue10","chemicalprocess",
     "engineemissions","lzbearing","pipelinethickness","repairtimes","tractorbreaks","tree25years",
     "shockabsorber","v7tube"
-  )
+  ))
   
   
   
@@ -336,27 +336,6 @@ server <- function(input, output, session) {
       data <- data[apply(data, 1, function(row) any(grepl(search_term, row, ignore.case = TRUE))), , drop = FALSE]
     }
     return(data)
-  })
-  
-  
-  output$summary_output <- renderUI({
-    req(datos_filtrados())
-    df <- datos_filtrados()
-    
-    # Crea una lista de elementos HTML para cada variable
-    summary_list <- lapply(names(df), function(var_name) {
-      var_summary <- summary(df[[var_name]])
-      html_output <- paste(
-        "<div class='summary-container'>",
-        "<h4>", var_name, "</h4>",
-        "<pre>", paste(capture.output(var_summary), collapse = "\n"), "</pre>",
-        "</div>"
-      )
-      return(html_output)
-    })
-    
-    # Combina todos los elementos HTML en un solo objeto HTML
-    HTML(paste(summary_list, collapse = "<br>"))
   })
   
   
@@ -461,18 +440,39 @@ server <- function(input, output, session) {
     }
   })
   
-  output$col_response_ui <- renderUI({
-    req(datos())
-    choices <- colnames(datos())
-    choices <- c("No aplica", choices)
+ # output$col_response_ui <- renderUI({
+ #   req(datos())
+ #   choices <- colnames(datos())
+ #   choices <- c("No aplica", choices)
+ #   
+ #   fluidRow(
+ #     column(
+ #       width = 12,
+ #       selectInput("col_response", "Selecciona la columna que contiene la variable asociada al evento:",
+ #                   choices = choices, selected = choices[3])
+ #     )
+ #   )
+ # })
+
+
+  output$summary_output <- renderUI({
+    req(datos_filtrados())
+    df <- datos_filtrados()
     
-    fluidRow(
-      column(
-        width = 12,
-        selectInput("col_response", "Selecciona la columna que contiene la variable asociada al evento:",
-                    choices = choices, selected = choices[3])
+    # Crea una lista de elementos HTML para cada variable
+    summary_list <- lapply(names(df), function(var_name) {
+      var_summary <- summary(df[[var_name]])
+      html_output <- paste(
+        "<div class='summary-container'>",
+        "<h4>", var_name, "</h4>",
+        "<pre>", paste(capture.output(var_summary), collapse = "\n"), "</pre>",
+        "</div>"
       )
-    )
+      return(html_output)
+    })
+    
+    # Combina todos los elementos HTML en un solo objeto HTML
+    HTML(paste(summary_list, collapse = "<br>"))
   })
   
   output$col_respuesta_ui <- renderUI({
@@ -483,8 +483,50 @@ server <- function(input, output, session) {
     fluidRow(
       column(
         width = 12,
-        selectInput("col_respuesta", "Selecciona la columna de la respuesta:",
-                    choices = choices, selected = choices[2])
+        selectInput("col_respuesta", "Selecciona la(s) columna(s) de la respuesta:",
+                    choices = choices, multiple = T, selected = choices[2])
+      )
+    )
+  })
+
+  output$col_censura_ui <- renderUI({
+    req(datos())
+    choices <- colnames(datos())
+    choices <- c("No aplica", choices)
+    
+    fluidRow(
+      column(
+        width = 12,
+        selectInput("col_censura", "Selecciona la columna de la censura:",
+                    choices = choices)
+      )
+    )
+  })
+  
+  output$col_cantidad_ui <- renderUI({
+    req(datos())
+    choices <- colnames(datos())
+    choices <- c("No aplica", choices)
+    
+    fluidRow(
+      column(
+        width = 12,
+        selectInput("col_cantidad", "Selecciona la columna de la cantidad:",
+                    choices = choices)
+      )
+    )
+  })
+  
+  output$col_falla_ui <- renderUI({
+    req(datos())
+    choices <- colnames(datos())
+    choices <- c("No aplica", choices)
+    
+    fluidRow(
+      column(
+        width = 12,
+        selectInput("col_falla", "Selecciona la columna del modo de falla:",
+                    choices = choices)
       )
     )
   })
@@ -493,7 +535,10 @@ server <- function(input, output, session) {
     if (!is.null(datos())) {
       datos.ld <- frame.to.ld(
         datos(),
-        response.column = if (input$col_respuesta != "No aplica") input$col_respuesta else NULL,
+        response.column = if(!("No aplica" %in% input$col_respuesta)) input$col_respuesta else NULL,
+        censor.column = if (input$col_censura != "No aplica") input$col_censura else NULL,
+        case.weight.column = if (input$col_cantidad != "No aplica") input$col_cantidad else NULL,
+        failure.mode.column = if (input$col_falla != "No aplica") input$col_falla else NULL
       )
       
       plot(datos.ld, 
@@ -512,10 +557,13 @@ server <- function(input, output, session) {
       for (i in 1:length(distribuciones)) {
         dist <- distribuciones[i]
         
-        datos.ld <- frame.to.ld(
-          datos(),
-          response.column = if (input$col_respuesta != "No aplica") input$col_respuesta else NULL,
-        )
+        datos.ld <- SMRD::frame.to.ld(
+        datos(),
+        response.column = if(!("No aplica" %in% input$col_respuesta)) input$col_respuesta else NULL,
+        censor.column = if (input$col_censura != "No aplica") input$col_censura else NULL,
+        case.weight.column = if (input$col_cantidad != "No aplica") input$col_cantidad else NULL,
+        failure.mode.column = if (input$col_falla != "No aplica") input$col_falla else NULL
+      )
         
         # Dibuja el gráfico de probabilidad
         plot(datos.ld, 
